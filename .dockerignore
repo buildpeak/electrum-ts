@@ -1,0 +1,9 @@
+.git
+.env
+/.vscode/
+/tmp/
+/src/
+/docs/
+/test/
+/node_modules/
+Dockerfile*
