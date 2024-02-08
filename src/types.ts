@@ -7,29 +7,28 @@ export type PeersSubscribeResult = Array<
   [string, string, [string, string, string, string]]
 >;
 
-export type BalanceOutput = {
+export type Balance = {
   confirmed: number;
   unconfirmed: number;
 };
 
-export interface ConfirmedTransactionOutput {
+export interface ConfirmedTx {
   height: number;
   tx_hash: string;
 }
 
-export interface UnconfirmedTransactionOutput
-  extends ConfirmedTransactionOutput {
+export interface MempoolTx extends ConfirmedTx {
   fee: number;
 }
 
-export interface UnspentOutput extends ConfirmedTransactionOutput {
+export interface UnspendTx extends ConfirmedTx {
   tx_pos: number;
   value: number;
 }
 
 export type ScriptHashStatus = string;
 
-export type HeadersSubscribeOutput = {
+export type HeadersSubscribeResult = {
   height: number;
   hex: string;
 };
@@ -46,7 +45,7 @@ export interface BlockHeaders {
   max: number;
 }
 
-export interface BlockHeadersDetail extends BlockHeaders {
+export interface RichBlockHeaders extends BlockHeaders {
   root: string;
   branch: string[];
 }
@@ -98,4 +97,24 @@ export interface Tx {
 
 export type Txn<T extends boolean> = T extends true ? Tx : string;
 
+export interface Merkle {
+  block_height: number;
+  merkle: string[];
+  pos: number;
+}
+
 export type FeeHistogram = Array<[number, number]>;
+
+export interface VinWithPrevout extends Vin {
+  prevout: Vout;
+}
+
+export interface RichTx extends Tx {
+  vin: Array<VinWithPrevout>;
+  merkle: Merkle;
+  height: number;
+  fee: number;
+  fee_in_sat: number;
+  input_total: number;
+  output_total: number;
+}
