@@ -1,4 +1,6 @@
 import EventEmitter from 'events';
+import tls from 'tls';
+import ws from 'ws';
 import { addressToScriptHash } from './btc-util';
 import { JSONRPC, JSONRPCResponse } from './json-rpc';
 import { TCPSocketClient } from './transport/tcp';
@@ -10,13 +12,14 @@ import {
   BlockHeaders,
   FeeHistogram,
   HeadersSubscribeResult,
+  Logger,
   MempoolTx,
   Merkle,
   PeersSubscribeResult,
   RichBlockHeaders,
   RichTx,
   ScriptHashStatus,
-  ServerVersionOutput,
+  ServerVersion,
   Tx,
   Txn,
   UnspendTx,
@@ -26,11 +29,16 @@ import {
 
 const MaxBatchSize = 80;
 
+export type Options = {
+  maxBatchSize?: number;
+  logger?: Logger;
+};
+
 export class ElectrumClient {
   public readonly socket: TCPSocketClient | TLSSocketClient | WebSocketClient;
   private msgId = 1;
-  private logger = console;
-  private subscribe: EventEmitter;
+  private logger: Logger;
+  private _subscriptions: EventEmitter;
   private listeners: Map<string, (res: JSONRPCResponse) => void> = new Map();
   private maxBatchSize = MaxBatchSize;
 
@@ -41,7 +49,7 @@ export class ElectrumClient {
     host: string,
     port: number,
     protocol: string,
-    options: Record<string, unknown> = {},
+    options: Options = {},
   ) {
     switch (protocol) {
       case 'tcp':
@@ -49,10 +57,17 @@ export class ElectrumClient {
         break;
       case 'ssl':
       case 'tls':
-        this.socket = new TLSSocketClient(host, port, options);
+        this.socket = new TLSSocketClient(
+          host,
+          port,
+          options as tls.TLSSocketOptions,
+        );
         break;
       case 'ws':
-        this.socket = new WebSocketClient(`ws://${host}:${port}`, options);
+        this.socket = new WebSocketClient(
+          `ws://${host}:${port}`,
+          options as ws.ClientOptions,
+        );
         break;
       default:
         throw new Error(`Unknown protocol: ${protocol}`);
@@ -62,7 +77,9 @@ export class ElectrumClient {
       this.maxBatchSize = options.maxBatchSize as number;
     }
 
-    this.subscribe = new EventEmitter();
+    this.logger = options.logger || console;
+
+    this._subscriptions = new EventEmitter();
 
     this.socket.on('message', (data) => {
       this.logger.debug('Received message: %j', data);
@@ -77,7 +94,7 @@ export class ElectrumClient {
         return;
       } else if (msg.id === undefined || msg.id === null) {
         // it's a notification
-        this.subscribe.emit(msg.method, msg.params);
+        this._subscriptions.emit(msg.method, msg.params);
       } else {
         // it's a response
         this.handleResponse(msg);
@@ -173,6 +190,10 @@ export class ElectrumClient {
     this.socket.close();
   }
 
+  public subscribe(event: string, listener: (...args: unknown[]) => void) {
+    this._subscriptions.on(event, listener);
+  }
+
   // Some Wrappers to simplify the ElectrumX API
   public get_address_balance(
     address: string,
@@ -261,7 +282,7 @@ export class ElectrumClient {
 
   // ElectrumX API
   public server_version(clientName: string, protocolVersion: string) {
-    return this.request<ServerVersionOutput>('server.version', [
+    return this.request<ServerVersion>('server.version', [
       clientName,
       protocolVersion,
     ]);

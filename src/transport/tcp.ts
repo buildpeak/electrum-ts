@@ -1,13 +1,14 @@
 import net, { type Socket, type SocketConstructorOpts } from 'net';
+import { Logger } from '../types';
 
 type Options = SocketConstructorOpts & {
-  logger?: Console;
+  logger?: Logger;
 };
 
 export class TCPSocketClient {
   protected _socket: Socket;
   protected _state: string = 'disconnected';
-  protected logger: Console | undefined;
+  protected logger: Logger;
   private lineBuffer = '';
 
   public constructor(

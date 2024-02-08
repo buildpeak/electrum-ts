@@ -1,4 +1,11 @@
-export type ServerVersionOutput = [
+export interface Logger {
+  error: (msg: string, ...args: unknown[]) => void;
+  warn: (msg: string, ...args: unknown[]) => void;
+  info: (msg: string, ...args: unknown[]) => void;
+  debug: (msg: string, ...args: unknown[]) => void;
+}
+
+export type ServerVersion = [
   string, // client version
   string, // protocol version
 ];

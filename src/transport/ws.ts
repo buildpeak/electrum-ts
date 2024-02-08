@@ -36,7 +36,16 @@ export class WebSocketClient {
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   public on(event: string, listener: (...args: any[]) => void) {
-    this._socket.on(event, listener);
+    switch (event) {
+      case 'connect':
+        this._socket.on('open', listener);
+        break;
+      case 'message':
+        this._socket.on('message', (msg) => listener(msg.toString('utf8')));
+        break;
+      default:
+        this._socket.on(event, listener);
+    }
   }
 
   public send(data: string | Uint8Array) {

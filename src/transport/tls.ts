@@ -7,7 +7,7 @@ export class TLSSocketClient extends TCPSocketClient {
   public constructor(
     host: string,
     port: number,
-    tlsOptions: tls.TLSSocketOptions,
+    tlsOptions?: tls.TLSSocketOptions,
   ) {
     super(host, port);
 
