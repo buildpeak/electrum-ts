@@ -26,13 +26,21 @@ import {
   Vin,
   VinWithPrevout,
 } from './types';
+import { consoleLogger } from './util';
 
 const MaxBatchSize = 80;
 
 export type Options = {
   maxBatchSize?: number;
   logger?: Logger;
-};
+} & (tls.TLSSocketOptions | ws.ClientOptions);
+
+export interface GetAddressRichHistoryOptions {
+  afterHeight?: number;
+  beforeHeight?: number;
+  inclusive?: boolean;
+  OnlyConfirmedTx?: boolean;
+}
 
 export class ElectrumClient {
   public readonly socket: TCPSocketClient | TLSSocketClient | WebSocketClient;
@@ -77,7 +85,7 @@ export class ElectrumClient {
       this.maxBatchSize = options.maxBatchSize as number;
     }
 
-    this.logger = options.logger || console;
+    this.logger = options.logger || consoleLogger();
 
     this._subscriptions = new EventEmitter();
 
@@ -213,6 +221,69 @@ export class ElectrumClient {
     return this.blockchain_scripthash_getHistory(scriptHash);
   }
 
+  public async get_address_rich_history(
+    address: string,
+    network: 'bitcoin' | 'testnet' = 'bitcoin',
+    options?: GetAddressRichHistoryOptions,
+  ): Promise<RichTx[]> {
+    const { afterHeight, beforeHeight, inclusive, OnlyConfirmedTx } =
+      options || {};
+
+    const history = await this.get_address_history(address, network);
+
+    if (afterHeight && beforeHeight && afterHeight > beforeHeight) {
+      throw new Error('afterHeight must be less than beforeHeight');
+    }
+
+    // skip transactions before afterHeight or after beforeHeight
+    const filteredHistory = history.filter((tx) => {
+      if (tx.height <= 0) {
+        return OnlyConfirmedTx ? false : true;
+      }
+
+      if (
+        afterHeight &&
+        (tx.height < afterHeight || (!inclusive && tx.height === afterHeight))
+      ) {
+        return false;
+      }
+
+      if (
+        beforeHeight &&
+        (tx.height > beforeHeight || (!inclusive && tx.height === beforeHeight))
+      ) {
+        return false;
+      }
+
+      return true;
+    });
+
+    const rickTxs: RichTx[] = [];
+
+    const promises: Array<Promise<RichTx[]>> = [];
+
+    for (let i = 0; i < filteredHistory.length; i += this.maxBatchSize) {
+      const batch = filteredHistory.slice(i, i + this.maxBatchSize);
+      const p = async () => {
+        const hashes = batch.map((tx) => tx.tx_hash);
+        const txs = await this.get_transactions_batch(hashes);
+
+        return Promise.all(
+          txs.map((tx, i) => this.enrich_tx(tx, filteredHistory[i].height)),
+        );
+      };
+      promises.push(p());
+    }
+
+    const results = await Promise.all(promises);
+
+    for (const result of results) {
+      rickTxs.push(...result);
+    }
+
+    return rickTxs;
+  }
+
   public get_transactions_batch(hashes: string[]) {
     return this.requestBatch<Txn<true>>(
       hashes.map((hash) => ({
@@ -227,19 +298,33 @@ export class ElectrumClient {
 
     const vinWithPrevouts: VinWithPrevout[] = [];
 
+    const promises: Array<Promise<VinWithPrevout[]>> = [];
+
     for (let i = 0; i < hashes.length; i += this.maxBatchSize) {
       const batchHashes = hashes.slice(i, i + this.maxBatchSize);
 
-      const txs = await this.get_transactions_batch(batchHashes);
+      const p = async () => {
+        const txs = await this.get_transactions_batch(batchHashes);
 
-      for (let j = 0; j < txs.length; j++) {
-        const tx = txs[j];
-        vinWithPrevouts.push({
-          ...vins[i + j],
-          prevout: tx.vout[vins[i + j].vout],
-        });
-      }
+        const richVins = [];
+
+        for (let j = 0; j < txs.length; j++) {
+          const tx = txs[j];
+          richVins.push({
+            ...vins[i + j],
+            prevout: tx.vout[vins[i + j].vout],
+          });
+        }
+
+        return richVins;
+      };
+
+      promises.push(p());
     }
+
+    const results = await Promise.all(promises);
+
+    results.forEach((vin) => vinWithPrevouts.push(...vin));
 
     return vinWithPrevouts;
   }
